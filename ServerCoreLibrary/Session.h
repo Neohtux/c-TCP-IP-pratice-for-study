@@ -4,31 +4,65 @@
 #include <boost/bind.hpp>
 #include <boost/asio/placeholders.hpp>
 #include <boost/asio.hpp>
+#include <queue>
 #define BUFFER_SIZE	4096
+
 class Session
 {
 
 public:
+	static std::mutex _cSessionMsgLock; //Client Session Send Message Queue Lock
 	Session(boost::asio::io_context& io_context, const int& session_ID);
 	void StartSession();
 
-	void Send();
-	void Read();
+	virtual void Send(const char* buffer);
+	virtual void Read();
 	void Read(std::size_t transferredLength);
-
+	virtual void StartSend();
 	void DisConnect();
+	unsigned int getDataLength(const char* buffer);
+
 	boost::asio::ip::tcp::socket& Socket() { return _socket; };
 
-private:
+protected:
 	//TODO Buffer 관리자 생성 필요 세션 분리화 (Client, Server) 작업 이후 해야함.
 	char _buffer[4096];
 	boost::asio::ip::tcp::socket _socket;
 	bool isDisconnected;
+	bool isSendWait;
 	int _session_ID;
+	
+	// TODO. race condition need to lock  락 필요
+	std::queue<const char*> _sendMessageQueue;
 
-	void OnSendCompleted(const boost::system::error_code& error);
-	void OnReadCompleted(const boost::system::error_code& error, const size_t& byte_trasffered);
-	void OnDisConnected();
+	 virtual void OnSendCompleted(const boost::system::error_code& error);
+	 virtual void OnReadCompleted(const boost::system::error_code& error, const size_t& byte_transffered);
+	 virtual void OnDisConnected();
 
+};
 
+class ServerSession
+{
+public:
+	static std::mutex _sSessionMsgLock; //Server Session Send Message Queue Lock
+	
+	ServerSession(boost::asio::io_context& io_context, const int& session_ID);
+
+	unsigned int getDataLength(const char* buffer);
+	void StartSession();
+	void Send(const char* buffer);
+	void Read();
+	void StartSend();
+	void Disconnect();
+	void OnSendCompleted(const boost::system::error_code& error) ;
+	void OnReadCompleted(const boost::system::error_code& error, const size_t& byte_transffered) ;
+	//void OnDisConnected();
+	boost::asio::ip::tcp::socket& Socket() { return _socket; };
+private:
+	std::queue<const char*> _sendMessageQueue;
+	char _buffer[4096];
+	boost::asio::ip::tcp::socket _socket;
+	bool isDisconnected;
+	bool _isSendWait;
+	const int _session_ID;
 };
