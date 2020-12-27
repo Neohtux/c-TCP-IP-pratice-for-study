@@ -2,16 +2,14 @@
 #include<memory>
 #include<iostream>
 #include"Connector.h"
-#include "SessionManager.h"
+
 Connector::Connector(boost::asio::io_context& io_context):_io_context(io_context){}
 
-void Connector::Start_Connect(boost::asio::ip::tcp::endpoint& ep)
+void Connector::Start_Connect(boost::asio::ip::tcp::endpoint& ep, ServerSession* new_session)
 {
 	std::cout << "접속 시도중..." << '\n';
 	try
 	{
-		Session* new_session = SessionManager::GetInstance()->GenerateSession(_io_context);
-
 		new_session->Socket().async_connect(ep, boost::bind(&Connector::OnConnectedCompleted, this,
 			boost::asio::placeholders::error, new_session));
 	}
@@ -20,23 +18,22 @@ void Connector::Start_Connect(boost::asio::ip::tcp::endpoint& ep)
 		std::cout << e.what() << '\n';
 	}
 }
-void Connector::OnConnectedCompleted(const boost::system::error_code& error,Session* session)
+void Connector::OnConnectedCompleted(const boost::system::error_code& error, ServerSession* session)
 {
-	if (error)
+	if (error) // error == ture 는 접속에 실패한경우
 	{
 		std::cout << "접속 에러  " << error.message() << '\n';
+		delete session;
 		return;
 	}
 	bool isSocketOpen = session->Socket().is_open();
 
-	if (isSocketOpen && (!error))
+	if (isSocketOpen && (!error)) //접속이 성공 한경우
 	{
+
 		std::cout << "접속 성공" << '\n';
-
-		//TODO		 make Session 
-		//session->Read();
-		session->Send();
-
-
+		session->StartSession();
+ 		session->Send("i'am cli ent!!");
+	
 	}
 }
