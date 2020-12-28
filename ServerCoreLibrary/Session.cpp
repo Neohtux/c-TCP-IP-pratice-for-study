@@ -1,14 +1,21 @@
 #pragma once
 #include<iostream>
 #include "SessionManager.h"
+#include "RecvBuffer.h"
 #define SEND_LENGTH	256
 #pragma region  ServerSession 
 
 
 //used for client (ServerSession)
 ServerSession::ServerSession(boost::asio::io_context& io_context, const int& session_ID)
-	:_socket(io_context), _session_ID(session_ID) {}
-
+	:_session_ID(session_ID) 
+{
+	initSocket(io_context);
+}
+void ServerSession::initSocket(boost::asio::io_context& io_context)
+{
+	_socket = std::make_unique<boost::asio::ip::tcp::socket>(io_context);
+}
 unsigned int ServerSession::getDataLength(const char* buffer)
 {
 	int _lengthIdx = 0;
@@ -22,17 +29,20 @@ unsigned int ServerSession::getDataLength(const char* buffer)
 void ServerSession::Disconnect()
 {
 	// 종료하려는 소켓이 열려 있을때만 닫는다.
-	if (_socket.is_open())
+	if (_socket->is_open())
 	{
-		_socket.close();
+		_socket->close();
 		isDisconnected = true;
 		//OnDisConnected();
 	}
 }
-void ServerSession::Send(const char* buffer) 
+void ServerSession::Send(char* buffer, int _sessionID) 
 {
 	std::scoped_lock(_sSessionMsgLock);
-	_sendMessageQueue.push(buffer);
+
+	char* _buffer = buffer;
+	//std::strcat(_buffer, "1");
+	_sendMessageQueue.push(_buffer);
 
 	if (!_isSendWait) //현재 Send중이 아니라면 StartSend() 
 	{
@@ -54,17 +64,15 @@ void ServerSession::OnSendCompleted(const boost::system::error_code& error)
 }
 void ServerSession::StartSend()
 {
-	//_buffer는 char buffer[255];
 	if (isDisconnected) return;
 
 	_isSendWait = true;
-
-	const char* buffer = _sendMessageQueue.front();
+	
+	char* buffer = _sendMessageQueue.front();
 	_sendMessageQueue.pop();
-
 	unsigned int _dataLength = getDataLength(buffer);
-
-	boost::asio::async_write(_socket,
+	
+	boost::asio::async_write(*_socket ,
 		boost::asio::buffer(buffer, _dataLength),
 		boost::bind(&ServerSession::OnSendCompleted, this, boost::asio::placeholders::error));
 }
@@ -76,8 +84,8 @@ void ServerSession::Read()
 		return;
 	}
 	memset(&_buffer, '\0', sizeof(_buffer));
-
-	_socket.async_read_some(boost::asio::buffer(_buffer, 14),
+	
+	_socket->async_read_some(boost::asio::buffer(_buffer, 14),
 		boost::bind(&ServerSession::OnReadCompleted, this,
 			boost::asio::placeholders::error,
 			boost::asio::placeholders::bytes_transferred));
@@ -102,28 +110,35 @@ void ServerSession::StartSession()
 {
 	isDisconnected = false;
 	std::cout << "Client thread ID : " << std::this_thread::get_id << '\n';
-	std::cout << _socket.remote_endpoint() << '\n';
+	std::cout << _socket->remote_endpoint() << '\n';
 	Read();
 }
 #pragma endregion
 Session::Session(boost::asio::io_context& io_context, const int& session_ID)
-	:_socket(io_context), _session_ID(session_ID) {}
-
+	: _session_ID(session_ID) 
+{
+	initSocket(io_context);
+}
+void Session::initSocket(boost::asio::io_context& io_context)
+{
+	_socket = std::make_unique<boost::asio::ip::tcp::socket>(io_context);
+}
 void Session::StartSession()
 {
 	isDisconnected = false;
-	//std::cout << "thread ID : " << std::this_thread::get_id << '\n';
-	std::cout << _socket.remote_endpoint() << '\n';
+	std::cout << _socket->remote_endpoint() << '\n';
 	Read();
 }
 #pragma region Send
-void Session::Send(const char* buffer)
+void Session::Send(char* buffer,int sessionID)
 {
 	//Danger zone 각 세션간 큐에 대해 레이스 컨디션 발생
 	std::scoped_lock(_cSessionMsgLock);
-	_sendMessageQueue.push(buffer);
+	char* _buffer = buffer;
+	//std::strcat(_buffer, "1");
+	_sendMessageQueue.push(_buffer);
 
-	if (!isSendWait) //현재 Send중이 아니라면 StartSend() 
+	if (!_isSendWait) //현재 Send중이 아니라면 StartSend() 
 	{
 		StartSend();
 	}
@@ -133,7 +148,7 @@ void Session::StartSend()
 	//_buffer는 char buffer[255];
 	if (isDisconnected) return;
 
-	isSendWait = true;
+	_isSendWait = true;
 
 	const char* buffer = _sendMessageQueue.front();
 	_sendMessageQueue.pop();
@@ -141,7 +156,7 @@ void Session::StartSend()
 	unsigned int _dataLength = getDataLength(buffer);
 
 
-	boost::asio::async_write(_socket,
+	boost::asio::async_write(*_socket,
 		boost::asio::buffer(buffer, _dataLength),
 		boost::bind(&Session::OnSendCompleted, this, boost::asio::placeholders::error));
 
@@ -151,7 +166,7 @@ void Session::OnSendCompleted(const boost::system::error_code& error)
 	if (!error)
 	{
 		std::cout << "Send completed Message : " << _buffer << '\n';
-		isSendWait = false;
+		_isSendWait = false;
 	}
 
 	else
@@ -173,8 +188,8 @@ void Session::Read()
 		return;
 	}
 	memset(&_buffer, '\0', sizeof(_buffer));
-
-	_socket.async_read_some(boost::asio::buffer(_buffer,14),
+	
+	_socket->async_read_some(boost::asio::buffer(_buffer,14),
 		boost::bind(&Session::OnReadCompleted, this,
 			boost::asio::placeholders::error,
 			boost::asio::placeholders::bytes_transferred));
@@ -209,9 +224,9 @@ void Session::OnReadCompleted(const boost::system::error_code& error, const std:
 void Session::DisConnect()
 {
 	// 종료하려는 소켓이 열려 있을때만 닫는다.
-	if (_socket.is_open())
+	if (_socket->is_open())
 	{
-		_socket.close();
+		_socket->close();
 		isDisconnected = true;
 		OnDisConnected();
 	}
